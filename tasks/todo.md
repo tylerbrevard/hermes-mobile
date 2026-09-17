@@ -15,7 +15,7 @@
 - [ ] Add typed Hermes contract adapter and robust SSE event normalization.
 - [x] Complete Bot session create/send against a live Hermes API server; resume/readback remains next.
 - [ ] Add approval, stop, and steer controls.
-- [ ] Add session search/history/fork/rename/delete.
+- [x] Add session search/history browse/open; fork/rename/delete remain.
 - [ ] Add activity/run recovery view.
 - [ ] Add profile switching.
 - [ ] Add PWA update UX and accessibility/browser QA.
