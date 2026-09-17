@@ -30,29 +30,30 @@ function textFromEvent(value: unknown): string {
   return '';
 }
 
-async function streamMessage(sessionId: string, message: string, onText: (text: string) => void): Promise<void> {
-  const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/chat/stream`, {
-    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message }),
-  });
+type RunEvent = { event?: string; run_id?: string; delta?: string; output?: string; status?: string; approval?: Record<string, unknown>; [key: string]: unknown };
+
+async function streamRun(sessionId: string, message: string, onEvent: (event: RunEvent) => void): Promise<string> {
+  const admitted = await api<{ run_id: string }>('/api/runs', { method: 'POST', body: JSON.stringify({ input: message, session_id: sessionId }) });
+  const response = await fetch(`/api/runs/${encodeURIComponent(admitted.run_id)}/events`, { credentials: 'include' });
   if (!response.ok || !response.body) {
     const body = await response.json().catch(() => ({})) as ApiError;
-    throw new Error(body.error?.message ?? `Stream failed (${response.status})`);
+    throw new Error(body.error?.message ?? `Run stream failed (${response.status})`);
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
   while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
+    const { value, done } = await reader.read(); buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const frames = buffer.split('\n\n'); buffer = frames.pop() ?? '';
     for (const frame of frames) {
-      const data = frame.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim();
-      if (!data) continue;
-      try { onText(textFromEvent(JSON.parse(data))); } catch { onText(textFromEvent(data)); }
+      const data = frame.split('\n').find((line) => line.startsWith('data:'))?.slice(5).trim(); if (!data) continue;
+      try { const event = JSON.parse(data) as RunEvent; onEvent(event); } catch { /* Ignore non-JSON keepalive frames. */ }
     }
     if (done) break;
   }
+  return admitted.run_id;
+}
+
+async function runControl(runId: string, action: 'stop' | 'steer' | 'approval', body: Record<string, unknown> = {}) {
+  return api(`/api/runs/${encodeURIComponent(runId)}/${action}`, { method: 'POST', body: JSON.stringify(body) });
 }
 
 function Pairing({ onPaired }: { onPaired: () => void }) {
@@ -73,6 +74,9 @@ function Bot({ profile, activeSession, onSession }: { profile: string; activeSes
   const [sessionId, setSessionId] = useState(activeSession);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [runId, setRunId] = useState('');
+  const [steerDraft, setSteerDraft] = useState('');
+  const [approval, setApproval] = useState<{ runId: string; requestId?: string; command?: string; choices: string[] } | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     if (!activeSession || activeSession === sessionId) return;
@@ -84,7 +88,7 @@ function Bot({ profile, activeSession, onSession }: { profile: string; activeSes
   const canSend = Boolean(draft.trim() && !busy);
   async function send(event?: React.FormEvent) {
     event?.preventDefault(); if (!canSend) return;
-    setBusy(true); setError(''); const prompt = draft.trim(); setDraft('');
+    setBusy(true); setError(''); setApproval(null); const prompt = draft.trim(); setDraft('');
     let id = sessionId;
     try {
       if (!id) {
@@ -94,11 +98,19 @@ function Bot({ profile, activeSession, onSession }: { profile: string; activeSes
         setSessionId(id); onSession(id);
       }
       setMessages((current) => [...current, { role: 'user', content: prompt }, { role: 'assistant', content: '' }]);
-      await streamMessage(id, prompt, (text) => setMessages((current) => { const next = [...current]; next[next.length - 1] = { role: 'assistant', content: next[next.length - 1].content + text }; return next; }));
+      await streamRun(id, prompt, (event) => {
+        if (event.run_id) setRunId(event.run_id);
+        if (event.event === 'message.delta' && typeof event.delta === 'string') setMessages((current) => { const next = [...current]; next[next.length - 1] = { role: 'assistant', content: next[next.length - 1].content + event.delta }; return next; });
+        if (event.event === 'run.completed' && typeof event.output === 'string') setMessages((current) => { if (current[current.length - 1]?.content) return current; return [...current.slice(0, -1), { role: 'assistant', content: event.output as string }]; });
+        if (event.event === 'approval.request') setApproval({ runId: event.run_id ?? '', requestId: typeof event.request_id === 'string' ? event.request_id : undefined, command: typeof event.command === 'string' ? event.command : undefined, choices: Array.isArray(event.choices) ? event.choices.filter((choice): choice is string => typeof choice === 'string') : ['once', 'deny'] });
+      });
     } catch (err) { setError(err instanceof Error ? err.message : 'Hermes could not complete the run'); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setRunId(''); }
   }
-  return <section className="bot-screen"><header className="screen-header"><div><p className="eyebrow">ACTIVE BOT</p><h2>Hermes <span className="status-dot" /> </h2></div><button className="icon-button" aria-label="More bot options">•••</button></header><div className="conversation" aria-live="polite">{messages.length === 0 ? <div className="empty-bot"><div className="bot-glyph">⌁</div><h1>What should Hermes do?</h1><p>Ask for an answer, start a task, or send a command. You can pick up the full session later.</p><div className="suggestions"><button onClick={() => setDraft('Give me a concise status update')}>Status update</button><button onClick={() => setDraft('What needs my attention today?')}>What needs attention?</button></div></div> : messages.map((message, index) => <article className={`message ${message.role}`} key={`${index}-${message.content.slice(0, 8)}`}><span className="message-label">{message.role === 'user' ? 'YOU' : 'HERMES'}</span><p>{message.content || (busy && index === messages.length - 1 ? 'Thinking…' : '')}</p></article>)}</div>{error && <div className="inline-error" role="alert">{error}</div>}<form className="composer" onSubmit={send}><textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Hermes…" aria-label="Message Hermes" rows={1} /><button className="send-button" disabled={!canSend} aria-label={busy ? 'Sending' : 'Send message'}>{busy ? '■' : '↑'}</button></form><p className="composer-hint">↵ send · shift ↵ new line · {profile}</p></section>;
+  async function stopRun() { if (!runId) return; try { await runControl(runId, 'stop'); } catch (err) { setError(err instanceof Error ? err.message : 'Could not stop the run'); } }
+  async function steerRun(event: React.FormEvent) { event.preventDefault(); if (!runId || !steerDraft.trim()) return; try { await runControl(runId, 'steer', { input: steerDraft.trim() }); setSteerDraft(''); } catch (err) { setError(err instanceof Error ? err.message : 'Could not steer the run'); } }
+  async function resolveApproval(choice: string) { if (!approval?.runId) return; try { await runControl(approval.runId, 'approval', { choice, ...(approval.requestId ? { request_id: approval.requestId } : {}) }); setApproval(null); } catch (err) { setError(err instanceof Error ? err.message : 'Could not resolve approval'); } }
+  return <section className="bot-screen"><header className="screen-header"><div><p className="eyebrow">ACTIVE BOT</p><h2>Hermes <span className="status-dot" /> </h2></div><button className="icon-button" aria-label="More bot options">•••</button></header><div className="conversation" aria-live="polite">{messages.length === 0 ? <div className="empty-bot"><div className="bot-glyph">⌁</div><h1>What should Hermes do?</h1><p>Ask for an answer, start a task, or send a command. You can pick up the full session later.</p><div className="suggestions"><button onClick={() => setDraft('Give me a concise status update')}>Status update</button><button onClick={() => setDraft('What needs my attention today?')}>What needs attention?</button></div></div> : messages.map((message, index) => <article className={`message ${message.role}`} key={`${index}-${message.content.slice(0, 8)}`}><span className="message-label">{message.role === 'user' ? 'YOU' : 'HERMES'}</span><p>{message.content || (busy && index === messages.length - 1 ? 'Thinking…' : '')}</p></article>)}</div>{approval && <div className="approval-card"><span className="eyebrow">APPROVAL NEEDED</span><strong>Hermes is waiting for your decision.</strong>{approval.command && <code>{approval.command}</code>}<div className="approval-actions">{approval.choices.map((choice) => <button key={choice} className={choice === 'deny' ? 'danger-button' : 'primary-button'} onClick={() => void resolveApproval(choice)}>{choice === 'once' ? 'Allow once' : choice}</button>)}</div></div>}{error && <div className="inline-error" role="alert">{error}</div>}{busy && runId && <div className="run-controls"><button className="danger-button" onClick={() => void stopRun()}>Stop run</button><form onSubmit={steerRun}><input value={steerDraft} onChange={(event) => setSteerDraft(event.target.value)} placeholder="Steer this run…" aria-label="Steer this run" /><button disabled={!steerDraft.trim()}>Send</button></form></div>}<form className="composer" onSubmit={send}><textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Hermes…" aria-label="Message Hermes" rows={1} /><button className="send-button" disabled={!canSend} aria-label={busy ? 'Sending' : 'Send message'}>{busy ? '■' : '↑'}</button></form><p className="composer-hint">↵ send · shift ↵ new line · {profile}</p></section>;
 }
 
 function Sessions({ activeSession, onOpen }: { activeSession: string; onOpen: (id: string) => void }) {

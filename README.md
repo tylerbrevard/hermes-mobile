@@ -33,6 +33,8 @@ WEB_DIST=dist npm start
 
 Set `COOKIE_SECURE=true` whenever the gateway is served over HTTPS.
 
+For a private Tailscale-only install, `AUTO_PAIR_PRIVATE=true` skips the pairing screen only when `WEB_ORIGIN` is a Tailscale `.ts.net` origin. Do not use that mode behind a public reverse proxy; the Tailscale network is the authentication boundary.
+
 ## Pairing model
 
 The first release uses a one-time operator-provided pairing code. The code is exchanged once for a server-side session cookie; it is never sent to Hermes and is never stored in browser-readable storage. A future release can add a CLI-generated QR/deep-link flow without changing the Hermes credential boundary.

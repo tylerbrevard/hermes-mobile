@@ -10,7 +10,9 @@ const HERMES_API_KEY = process.env.HERMES_API_KEY ?? process.env.API_SERVER_KEY 
 const WEB_DIST = process.env.WEB_DIST ?? join(process.cwd(), 'dist');
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? `http://localhost:${PORT}`;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
+const AUTO_PAIR_PRIVATE = process.env.AUTO_PAIR_PRIVATE === 'true';
 const pairing = createPairingService(process.env.PAIRING_CODE ?? '');
+if (AUTO_PAIR_PRIVATE && !WEB_ORIGIN.includes('.ts.net')) throw new Error('AUTO_PAIR_PRIVATE requires a Tailscale .ts.net WEB_ORIGIN');
 const sessions = new Set<string>();
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -36,6 +38,7 @@ function setSessionCookie(res: ServerResponse, value: string): void {
 }
 
 function isAuthenticated(req: IncomingMessage): boolean {
+  if (AUTO_PAIR_PRIVATE) return true;
   const value = cookieValue(req, 'hermes_mobile_session');
   return Boolean(value && sessions.has(value));
 }
@@ -62,6 +65,7 @@ function routeToHermes(pathname: string, method: string): string | undefined {
   if (method === 'GET' && pathname === '/api/models') return '/v1/models';
   if (method === 'GET' && pathname === '/api/model/options') return '/api/model/options';
   if (pathname === '/api/sessions' && ['GET', 'POST'].includes(method)) return '/api/sessions';
+  if (pathname === '/api/runs' && method === 'POST') return '/v1/runs';
   const session = pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(messages|fork|chat\/stream|model))?$/);
   if (session) {
     const [, id, action] = session;

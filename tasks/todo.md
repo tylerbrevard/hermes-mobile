@@ -12,9 +12,9 @@
 ## Next vertical slices
 
 - [x] Validate live Hermes `/v1/capabilities`, session create/delete, and SSE stream against Hermes 0.21.3.
-- [ ] Add typed Hermes contract adapter and robust SSE event normalization.
+- [x] Add typed Hermes run adapter and robust SSE event normalization.
 - [x] Complete Bot session create/send against a live Hermes API server; resume/readback remains next.
-- [ ] Add approval, stop, and steer controls.
+- [x] Add approval, stop, and steer controls.
 - [x] Add session search/history browse/open; fork/rename/delete remain.
 - [ ] Add activity/run recovery view.
 - [ ] Add profile switching.

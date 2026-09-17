@@ -49,6 +49,12 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .inline-error { margin: .5rem 0; padding: .75rem; border: 1px solid #80483f; border-radius: 10px; background: #3a201d; }
 .placeholder-screen { padding-top: max(2.25rem, env(safe-area-inset-top)); }
 .placeholder-screen h2 { margin-bottom: .8rem; font-size: clamp(2.2rem, 11vw, 4rem); }
+.approval-card, .run-controls { display: grid; gap: .65rem; margin: .75rem 0; padding: .85rem; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.approval-card code { overflow-wrap: anywhere; color: var(--muted); }
+.approval-actions, .run-controls form { display: flex; gap: .5rem; flex-wrap: wrap; }
+.danger-button { min-height: 44px; border: 1px solid #8e5049; border-radius: 10px; padding: 0 .9rem; color: #ffd8d2; background: #3a1d1d; }
+.run-controls input { flex: 1; min-width: 10rem; }
+.run-controls form button { min-height: 44px; border-radius: 10px; padding: 0 .9rem; }
 .session-search { width: 100%; margin-bottom: 1rem; }
 .session-list { display: grid; gap: .65rem; }
 .session-row { display: grid; gap: .35rem; width: 100%; border: 1px solid var(--line); border-radius: 15px; padding: 1rem; background: var(--surface); text-align: left; }
