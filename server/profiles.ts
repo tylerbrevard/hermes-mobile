@@ -16,7 +16,7 @@ function firstMatch(source: string, pattern: RegExp, fallback: string): string {
 
 export function parseProfileMetadata(id: string, soul: string, config: string, active: boolean): ProfileInfo {
   const name = firstMatch(soul, /^#\s*SOUL\.md\s*[—-]\s*(.+)$/m, id);
-  const role = firstMatch(soul, /\*\*Role:\*\*\s*(.+)$/m, firstMatch(soul, /\*\*Theme:\*\*\s*(.+)$/m, 'Hermes profile'));
+  const role = firstMatch(soul, /\*\*Role:\*\*\s*(.+)$/m, firstMatch(soul, /\*\*Theme:\*\*\s*(.+)$/m, 'Hermes profile')).split(/\s+\*\*/)[0].trim();
   const model = firstMatch(config, /^\s+default:\s*([^\s#]+)\s*$/m, 'Inherited');
   return { id, name, role, model, active };
 }
