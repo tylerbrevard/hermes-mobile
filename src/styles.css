@@ -49,6 +49,13 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .inline-error { margin: .5rem 0; padding: .75rem; border: 1px solid #80483f; border-radius: 10px; background: #3a201d; }
 .placeholder-screen { padding-top: max(2.25rem, env(safe-area-inset-top)); }
 .placeholder-screen h2 { margin-bottom: .8rem; font-size: clamp(2.2rem, 11vw, 4rem); }
+.session-search { width: 100%; margin-bottom: 1rem; }
+.session-list { display: grid; gap: .65rem; }
+.session-row { display: grid; gap: .35rem; width: 100%; border: 1px solid var(--line); border-radius: 15px; padding: 1rem; background: var(--surface); text-align: left; }
+.session-row.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #b4ef7320; }
+.session-row-title { overflow: hidden; color: #edf3ee; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.session-row-preview { overflow: hidden; color: var(--muted); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.session-row-meta { color: #69766d; font-size: .68rem; }
 .notice-card, .settings-list { margin-top: 2rem; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
 .notice-card { display: grid; gap: .35rem; padding: 1rem; }
 .notice-card span { color: var(--muted); font-size: .9rem; line-height: 1.45; }
