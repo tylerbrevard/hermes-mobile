@@ -67,6 +67,26 @@ async function runControl(profile: string, runId: string, action: 'stop' | 'stee
   return api(profileApiPath(profile, `/api/runs/${encodeURIComponent(runId)}/${action}`), { method: 'POST', body: JSON.stringify(body) });
 }
 
+function profileTone(id: string): string {
+  const tones = ['moss', 'sky', 'amber', 'rose', 'violet', 'cyan'];
+  return tones[[...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % tones.length];
+}
+
+function profileMark(profile: ProfileInfo): string {
+  const words = profile.name.trim().split(/\s+/).filter(Boolean);
+  return words.length > 1 ? `${words[0][0]}${words[1][0]}`.toUpperCase() : profile.name.slice(0, 2).toUpperCase();
+}
+
+function modelShortName(model: string): string {
+  return model.replace(/^[^/:]+[/:]/i, '').replace(/-highspeed$/i, ' fast');
+}
+
+function roleShortName(role: string): string {
+  const firstSentence = role.split(/[.!?]/)[0].trim();
+  return firstSentence.length > 72 ? `${firstSentence.slice(0, 69)}…` : firstSentence;
+}
+
+
 function statusFromRunEvent(event: RunEvent): RunStatus {
   if (event.event === 'run.queued') return 'queued';
   if (event.event === 'approval.request') return 'waiting_for_approval';
@@ -105,7 +125,7 @@ function Bot({ profile, activeSession, onSession, onRun }: { profile: string; ac
   const [modelBusy, setModelBusy] = useState(false);
   useEffect(() => {
     api<ModelOptions>(profileApiPath(profile, '/api/model/options')).then((value) => { setModelOptions(value); if (value.model && (value.providers ?? []).some((provider) => provider.models.includes(value.model!))) setSelectedModel(value.model); }).catch(() => setModelOptions({}));
-  }, []);
+  }, [profile]);
   const modelChoices = useMemo(() => (modelOptions.providers ?? []).flatMap((provider) => provider.models.map((model) => ({ model, provider: provider.name, capabilities: provider.capabilities?.[model] }))), [modelOptions]);
   const selectedCapability = modelChoices.find((choice) => choice.model === selectedModel)?.capabilities;
   const runtimeOptions = reasoning ? { reasoning: { effort: reasoning } } : undefined;
@@ -156,9 +176,24 @@ function Bot({ profile, activeSession, onSession, onRun }: { profile: string; ac
 }
 
 function Bots({ selected, onSelect }: { selected: string; onSelect: (profile: ProfileInfo) => void }) {
-  const [profiles, setProfiles] = useState<ProfileInfo[]>([]); const [error, setError] = useState('');
+  const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
+  const [error, setError] = useState('');
   useEffect(() => { api<{ data?: ProfileInfo[] }>('/api/profiles').then((body) => setProfiles(body.data ?? [])).catch((err) => setError(err instanceof Error ? err.message : 'Could not load bots')); }, []);
-  return <section className="placeholder-screen bots-screen"><div className="screen-header"><div><p className="eyebrow">BOTS</p><h2>Your Hermes roster.</h2></div><span className="run-count">{profiles.length} profiles</span></div><p className="screen-lede">These are the local Hermes profiles on your instance. The active profile is chat-connected; stopped profiles are visible but need a gateway connection before they can run here.</p>{error && <p className="error-text" role="alert">{error}</p>}<div className="profile-list">{profiles.map((profile) => <article className={`profile-card ${profile.id === selected ? 'selected' : ''}`} key={profile.id}><button className="profile-card-main" disabled={!profile.active} onClick={() => onSelect(profile)}><span className="profile-avatar">{profile.name.slice(0, 1).toUpperCase()}</span><span className="profile-card-copy"><strong>{profile.name}</strong><span>{profile.role}</span><small>{profile.model}</small></span><span className={`profile-status ${profile.active ? 'active' : 'stopped'}`}>{profile.active ? 'Connected' : 'Stopped'}</span></button>{!profile.active && <p className="profile-note">This profile is installed on the Mac, but its gateway is not currently serving the mobile API.</p>}</article>)}</div></section>;
+  const active = profiles.find((profile) => profile.id === selected) ?? profiles.find((profile) => profile.active) ?? profiles[0];
+  const ready = profiles.filter((profile) => profile.active);
+  const stopped = profiles.filter((profile) => !profile.active);
+  return <section className="command-center">
+    <header className="command-header"><div className="brand-lockup"><span className="brand-orbit">⌁</span><div><p className="eyebrow">HERMES MOBILE</p><strong>Command center</strong></div></div><span className="live-pill"><i /> {ready.length} ready</span></header>
+    <div className="command-intro"><p className="eyebrow">YOUR OPERATORS</p><h1>Who’s on call?</h1><p>Choose a bot, then drop straight into its workspace.</p></div>
+    {error && <p className="error-text" role="alert">{error}</p>}
+    {active && <article className={`featured-bot tone-${profileTone(active.id)}`}>
+      <div className="featured-bot-top"><div className={`bot-avatar bot-avatar-large tone-${profileTone(active.id)}`}><span>{profileMark(active)}</span>{active.active && <i />}</div><div className="featured-bot-status"><span className="status-label">{active.active ? 'ONLINE NOW' : 'OFFLINE'}</span><span>{active.active ? 'Ready for a task' : 'Gateway not serving'}</span></div><span className="featured-kicker">ACTIVE</span></div>
+      <div className="featured-bot-copy"><h2>{active.name}</h2><p>{roleShortName(active.role)}</p><div className="bot-meta"><span><b className="meta-dot" /> {modelShortName(active.model)}</span><span>{active.active ? 'Connected' : 'Stopped'}</span></div></div>
+      <button className="featured-action" disabled={!active.active} onClick={() => onSelect(active)}>{active.active ? 'Open workspace' : 'Unavailable'} <span>↗</span></button>
+    </article>}
+    <section className="quick-switch" aria-labelledby="quick-switch-title"><div className="section-heading"><div><p className="eyebrow">QUICK SWITCH</p><h2 id="quick-switch-title">Jump to a bot</h2></div><span>{ready.length} available</span></div><div className="bot-rail" role="list">{ready.map((profile) => <button role="listitem" className={`bot-chip ${profile.id === selected ? 'selected' : ''}`} key={profile.id} onClick={() => onSelect(profile)} aria-label={`Open ${profile.name}`}><span className={`bot-avatar bot-avatar-small tone-${profileTone(profile.id)}`}>{profileMark(profile)}<i /></span><span>{profile.name}</span></button>)}</div></section>
+    <section className="operator-list" aria-labelledby="operator-list-title"><div className="section-heading"><div><p className="eyebrow">ROSTER</p><h2 id="operator-list-title">All operators</h2></div><span>{profiles.length} total</span></div><div className="operator-rows">{ready.map((profile) => <button className={`operator-row ${profile.id === selected ? 'selected' : ''}`} key={profile.id} onClick={() => onSelect(profile)}><span className={`bot-avatar bot-avatar-medium tone-${profileTone(profile.id)}`}>{profileMark(profile)}<i /></span><span className="operator-copy"><strong>{profile.name}</strong><span>{roleShortName(profile.role)}</span></span><span className="operator-model">{modelShortName(profile.model)}</span><span className="row-chevron">›</span></button>)}{stopped.length > 0 && <details className="stopped-operators"><summary><span>Unavailable operators</span><span>{stopped.length}</span></summary>{stopped.map((profile) => <div className="operator-row stopped" key={profile.id}><span className={`bot-avatar bot-avatar-medium tone-${profileTone(profile.id)}`}>{profileMark(profile)}</span><span className="operator-copy"><strong>{profile.name}</strong><span>{roleShortName(profile.role)}</span></span><span className="operator-model">Stopped</span></div>)}</details>}</div></section>
+  </section>;
 }
 
 function Sessions({ profile, activeSession, onOpen }: { profile: string; activeSession: string; onOpen: (id: string, profile?: string) => void }) {
@@ -196,7 +231,7 @@ function Settings({ connected, profile, onProfile, onClearActivity }: { connecte
   return <section className="placeholder-screen settings-screen"><p className="eyebrow">SETTINGS</p><h2>Quiet controls.</h2><p className="screen-lede">The mobile gateway keeps credentials server-side. These controls change the client or select a profile; Hermes remains the source of truth for agent configuration.</p><div className="settings-list"><div><span>Gateway</span><strong className={connected ? 'good' : 'bad'}>{connected ? 'Connected' : 'Unavailable'}</strong></div><div><span>Health</span><strong>{health?.status ?? 'Checking…'}{health?.version ? ` · ${health.version}` : ''}</strong></div><div><span>Active profile</span><select value={profile} onChange={(event) => { const next = profiles.find((item) => item.id === event.target.value); if (next?.active) onProfile(next); }} aria-label="Active profile">{profiles.map((item) => <option key={item.id} value={item.id} disabled={!item.active}>{item.name}{item.active ? '' : ' · stopped'}</option>)}</select></div><div><span>Appearance</span><select value={appearance} onChange={(event) => changeAppearance(event.target.value)} aria-label="Appearance"><option value="dark">Dark operator</option><option value="dim">Dim operator</option></select></div><div><span>Capabilities</span><strong>{skills.length} skills · {toolsets.length} toolsets</strong></div><div><span>Credential boundary</span><strong>Server-side</strong></div><div><span>Client</span><strong>Hermes Mobile 0.2</strong></div></div><div className="settings-details"><details><summary>Skills inventory <span>{skills.length}</span></summary><div className="settings-detail-list">{skills.slice(0, 80).map((skill) => <div key={`${skill.category}-${skill.name}`}><strong>{skill.name}</strong><span>{skill.description || skill.category || 'Installed skill'}</span></div>)}{skills.length > 80 && <small>Showing the first 80 installed skills.</small>}</div></details><details><summary>Toolsets <span>{toolsets.length}</span></summary><div className="settings-detail-list">{toolsets.map((toolset) => <div key={toolset.name}><strong>{toolset.label || toolset.name}</strong><span>{toolset.enabled ? 'Enabled' : 'Disabled'} · {(toolset.tools ?? []).length} tools</span></div>)}</div></details></div><button className="secondary-button" onClick={onClearActivity}>Clear local activity</button></section>; }
 
 function App() {
-  const [paired, setPaired] = useState<boolean | null>(null); const [tab, setTab] = useState<Tab>('bot'); const [connected, setConnected] = useState(false); const [session, setSession] = useState(''); const [activeProfile, setActiveProfile] = useState('default'); const [records, setRecords] = useState<RunRecord[]>(() => parseRunRecords(localStorage.getItem('hermes-mobile:runs')));
+  const [paired, setPaired] = useState<boolean | null>(null); const [tab, setTab] = useState<Tab>('bots'); const [connected, setConnected] = useState(false); const [session, setSession] = useState(''); const [activeProfile, setActiveProfile] = useState('default'); const [records, setRecords] = useState<RunRecord[]>(() => parseRunRecords(localStorage.getItem('hermes-mobile:runs')));
   useEffect(() => { api<{ paired: boolean }>('/api/auth/status').then((value) => setPaired(value.paired)).catch(() => setPaired(false)); }, []);
   useEffect(() => { if (paired) api(profileApiPath(activeProfile, '/api/capabilities')).then(() => setConnected(true)).catch(() => setConnected(false)); }, [paired, activeProfile]);
   useEffect(() => { document.documentElement.dataset.appearance = localStorage.getItem('hermes-mobile:appearance') ?? 'dark'; }, []);
@@ -207,7 +242,7 @@ function App() {
   const screen = useMemo(() => ({ bot: <Bot profile={activeProfile} activeSession={session} onSession={setSession} onRun={saveRun} />, bots: <Bots selected={activeProfile} onSelect={selectProfile} />, sessions: <Sessions profile={activeProfile} activeSession={session} onOpen={openSession} />, activity: <Activity records={records} onOpen={openSession} onRun={saveRun} />, settings: <Settings connected={connected} profile={activeProfile} onProfile={selectProfile} onClearActivity={clearActivity} /> }[tab]), [activeProfile, connected, records, session, tab]);
   if (paired === null) return <div className="loading-screen">Loading Hermes Mobile…</div>;
   if (!paired) return <Pairing onPaired={() => setPaired(true)} />;
-  return <main className="app-shell">{screen}<nav className="tab-bar" aria-label="Primary navigation">{([['bot', '⌁', 'Bot'], ['bots', '♙', 'Bots'], ['sessions', '▤', 'Sessions'], ['activity', '◷', 'Activity'], ['settings', '⚙', 'Settings']] as const).map(([key, icon, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)} aria-label={label}><span>{icon}</span><small>{label}</small></button>)}</nav></main>;
+  return <main className="app-shell">{screen}<nav className="tab-bar" aria-label="Primary navigation">{([['bots', '◈', 'Bots'], ['bot', '⌁', 'Chat'], ['sessions', '▤', 'Sessions'], ['activity', '◷', 'Activity'], ['settings', '⚙', 'Settings']] as const).map(([key, icon, label]) => <button key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)} aria-label={label}><span>{icon}</span><small>{label}</small></button>)}</nav></main>;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

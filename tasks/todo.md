@@ -23,6 +23,7 @@
 - [x] Add Settings diagnostics, appearance preference, local activity clearing, skill inventory, and toolset inventory.
 - [x] Keep the Hermes `/v1/skills` compatibility failure from breaking the client with a local read-only inventory fallback.
 - [x] Add cache-busting PWA update behavior and verify the live mobile shell; accessibility audit remains.
+- [x] Redesign the Bots home as a bot-first command center with a featured operator, quick-switch rail, rich roster, and responsive mobile treatment.
 - [ ] Add QR/deep-link pairing without placing Hermes credentials in URLs.
 - [ ] Add optional foreground-safe voice/file attachments only when Hermes capabilities advertise support.
 - [ ] Add accessibility and installed-PWA keyboard/VoiceOver pass.
