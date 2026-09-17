@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { createPairingService } from './auth.js';
 
 const PORT = Number(process.env.PORT ?? 8643);
+const HOST = process.env.HOST ?? '127.0.0.1';
 const HERMES_API_URL = (process.env.HERMES_API_URL ?? 'http://127.0.0.1:8642').replace(/\/$/, '');
 const HERMES_API_KEY = process.env.HERMES_API_KEY ?? process.env.API_SERVER_KEY ?? '';
 const WEB_DIST = process.env.WEB_DIST ?? join(process.cwd(), 'dist');
@@ -149,4 +150,4 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Hermes Mobile gateway listening on http://localhost:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`Hermes Mobile gateway listening on http://${HOST}:${PORT}`));

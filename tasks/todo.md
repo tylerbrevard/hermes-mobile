@@ -15,8 +15,8 @@
 - [x] Add typed Hermes run adapter and robust SSE event normalization.
 - [x] Complete Bot session create/send against a live Hermes API server; resume/readback remains next.
 - [x] Add approval, stop, and steer controls.
-- [x] Add session search/history browse/open; fork/rename/delete remain.
-- [ ] Add activity/run recovery view.
+- [x] Add session search/history browse/open plus fork/rename/delete.
+- [x] Add local activity/run recovery view with known-run status refresh.
 - [ ] Add profile switching.
-- [ ] Add PWA update UX and accessibility/browser QA.
+- [x] Add cache-busting PWA update behavior and verify the live mobile shell; accessibility audit remains.
 - [ ] Add QR/deep-link pairing without placing Hermes credentials in URLs.
