@@ -188,4 +188,46 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 @keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 @media (min-width: 700px) { .command-center, .bot-screen, .placeholder-screen { width: min(100% - 3rem, 880px); }.featured-bot { grid-template-columns: 1fr 1fr; min-height: 18rem; padding: 1.35rem; }.featured-bot-top { grid-column: 1 / -1; }.featured-bot-copy { align-self: end; }.featured-action { align-self: end; justify-self: end; }.tab-bar { left: 50%; width: min(100%, 760px); transform: translateX(-50%); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; } }
 @media (max-width: 430px) { .operator-model { display: none; }.operator-row { grid-template-columns: 2.65rem minmax(0, 1fr) 1rem; min-height: 4.55rem; }.operator-copy span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; line-height: 1.25; }.bot-rail { padding-right: 2rem; mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 1.35rem), transparent 100%); }.featured-action { min-height: 3rem; padding-inline: 1rem; }.command-intro { margin-top: 2.4rem; } }
+
+/* Cadu / Grok-inspired content-first grammar: one conversation, not a dashboard of cards. */
+.featured-bot { min-height: 0; margin-bottom: 2.5rem; padding: 0 0 1.8rem; border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: 0; background: transparent; box-shadow: none; }
+.featured-bot-top { padding-top: .25rem; }
+.featured-kicker { border: 0; padding: 0; color: var(--accent); }
+.featured-bot-copy h2 { font-size: clamp(2.7rem, 13vw, 4.6rem); }
+.featured-action { padding: 0; background: transparent; color: var(--accent); font-size: .85rem; }
+.featured-action:hover, .featured-action:focus-visible { background: transparent; text-decoration: underline; outline: none; }
+.bot-rail { margin-inline: 0; padding-inline: 0; border-bottom: 1px solid var(--line); }
+.bot-chip { min-width: 4.6rem; padding-inline: .15rem; border-radius: 0; }
+.bot-chip.selected { background: transparent; color: var(--accent); }
+.bot-chip.selected .bot-avatar { box-shadow: 0 0 0 2px var(--accent); }
+.operator-rows, .profile-list, .session-list, .run-list { gap: 0; border-top: 1px solid var(--line); }
+.operator-row, .profile-card, .session-row, .run-card { border: 0 !important; border-bottom: 1px solid var(--line) !important; border-radius: 0; padding-inline: 0; background: transparent !important; box-shadow: none !important; }
+.operator-row { min-height: 4.8rem; padding-block: .9rem; }
+.operator-row:hover, .operator-row:focus-visible, .operator-row.selected { border-color: var(--line); background: transparent !important; outline: none; }
+.operator-row.selected .operator-copy strong, .profile-card.selected .profile-card-copy strong { color: var(--accent); }
+.profile-card-main, .session-row-main { padding-inline: 0; }
+.profile-avatar { border-radius: 50%; }
+.profile-note { padding-inline: 0; border-top: 0; }
+.suggestions { gap: 1rem; justify-content: flex-start; }
+.suggestions button { border: 0; border-radius: 0; padding: .2rem 0; background: transparent; color: var(--accent); font-size: .78rem; text-align: left; }
+.suggestions button::after { content: '  →'; }
+.model-controls select { border: 0; border-radius: 0; border-bottom: 1px solid var(--line); background: transparent; padding-inline: 0; }
+.approval-card, .run-controls, .notice-card, .settings-list, .settings-details details { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.session-row-title, .run-card p { color: var(--text); }
+.session-actions button, .rename-form button, .run-card-actions button { border: 0; border-radius: 0; padding-inline: 0; background: transparent; color: var(--accent); }
+.settings-list { border-top: 1px solid var(--line); }
+.settings-list > div { padding-inline: 0; }
+.settings-list select { border: 0; border-radius: 0; background: transparent; padding-inline: 0; }
+.settings-details { border-top: 1px solid var(--line); }
+.settings-details summary { padding-inline: 0; }
+.settings-detail-list { border-top: 1px solid var(--line); }
+.secondary-button { border: 0; border-radius: 0; padding-inline: 0; color: var(--accent); }
+.tab-bar { border-top: 0; background: transparent; backdrop-filter: none; }
+.tab-bar button, .tab-bar button.active { border-radius: 0; background: transparent; }
+.tab-bar button.active small { position: relative; }
+.tab-bar button.active small::after { content: ''; position: absolute; right: 25%; bottom: -.55rem; left: 25%; height: 2px; border-radius: 2px; background: var(--accent); }
+.command-intro { margin-top: 4rem; }
+.quick-switch { display: none; }
+.bot-glyph { opacity: .72; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
