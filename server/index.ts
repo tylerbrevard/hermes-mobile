@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createPairingService } from './auth.js';
+import { listProfiles } from './profiles.js';
 
 const PORT = Number(process.env.PORT ?? 8643);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -136,6 +137,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/')) {
       if (!isAuthenticated(req)) return json(res, 401, { error: { code: 'UNAUTHENTICATED', message: 'Pair this device first' } });
+      if (url.pathname === '/api/profiles' && method === 'GET') return json(res, 200, { data: listProfiles() });
       if (['POST', 'PATCH', 'DELETE'].includes(method) && !sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
       const target = routeToHermes(url.pathname, method);
       if (!target) return json(res, 404, { error: { code: 'ROUTE_NOT_ALLOWED', message: 'Route is not exposed by the mobile gateway' } });
