@@ -3,6 +3,7 @@ export type RunStatus = 'queued' | 'running' | 'waiting_for_approval' | 'complet
 export type RunRecord = {
   runId: string;
   sessionId: string;
+  profile?: string;
   prompt: string;
   status: RunStatus;
   startedAt: number;

@@ -3,7 +3,8 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createPairingService } from './auth.js';
-import { listProfiles } from './profiles.js';
+import { listProfiles, readProfileApiKey } from './profiles.js';
+import { routeToHermesRequest } from './routes.js';
 
 const PORT = Number(process.env.PORT ?? 8643);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -62,38 +63,13 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function routeToHermes(pathname: string, method: string): string | undefined {
-  if (method === 'GET' && pathname === '/api/capabilities') return '/v1/capabilities';
-  if (method === 'GET' && pathname === '/api/models') return '/v1/models';
-  if (method === 'GET' && pathname === '/api/model/options') return '/api/model/options';
-  if (pathname === '/api/sessions' && ['GET', 'POST'].includes(method)) return '/api/sessions';
-  if (pathname === '/api/runs' && method === 'POST') return '/v1/runs';
-  const session = pathname.match(/^\/api\/sessions\/([^/]+)(?:\/(messages|fork|chat\/stream|model))?$/);
-  if (session) {
-    const [, id, action] = session;
-    if (action === 'messages' && method === 'GET') return `/api/sessions/${encodeURIComponent(id)}/messages`;
-    if (action === 'fork' && method === 'POST') return `/api/sessions/${encodeURIComponent(id)}/fork`;
-    if (action === 'chat/stream' && method === 'POST') return `/api/sessions/${encodeURIComponent(id)}/chat/stream`;
-    if (action === 'model' && method === 'POST') return `/api/sessions/${encodeURIComponent(id)}/model`;
-    if (!action && ['GET', 'PATCH', 'DELETE'].includes(method)) return `/api/sessions/${encodeURIComponent(id)}`;
-  }
-  const runStatus = pathname.match(/^\/api\/runs\/([^/]+)$/);
-  if (runStatus && method === 'GET') return `/v1/runs/${encodeURIComponent(runStatus[1])}`;
-  const run = pathname.match(/^\/api\/runs\/([^/]+)\/(events|approval|stop|steer)$/);
-  if (run) {
-    const [, id, action] = run;
-    const expected = action === 'events' ? 'GET' : 'POST';
-    if (method === expected) return `/v1/runs/${encodeURIComponent(id)}/${action}`;
-  }
-  return undefined;
-}
-
-async function proxy(req: IncomingMessage, res: ServerResponse, targetPath: string): Promise<void> {
-  if (!HERMES_API_KEY) return json(res, 503, { error: { code: 'BACKEND_NOT_CONFIGURED', message: 'Hermes API key is not configured' } });
+async function proxy(req: IncomingMessage, res: ServerResponse, targetPath: string, profileId = 'default'): Promise<void> {
+  const apiKey = readProfileApiKey(profileId, HERMES_API_KEY);
+  if (!apiKey) return json(res, 503, { error: { code: 'BACKEND_NOT_CONFIGURED', message: 'Hermes API key is not configured for this profile' } });
   const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : await readBody(req);
   const upstream = await fetch(`${HERMES_API_URL}${targetPath}`, {
     method: req.method,
-    headers: { authorization: `Bearer ${HERMES_API_KEY}`, ...(body ? { 'content-type': req.headers['content-type'] ?? 'application/json' } : {}) },
+    headers: { authorization: `Bearer ${apiKey}`, ...(body ? { 'content-type': req.headers['content-type'] ?? 'application/json' } : {}) },
     body: body ? new Uint8Array(body) : undefined,
     signal: AbortSignal.timeout(120_000),
   });
@@ -139,9 +115,9 @@ const server = createServer(async (req, res) => {
       if (!isAuthenticated(req)) return json(res, 401, { error: { code: 'UNAUTHENTICATED', message: 'Pair this device first' } });
       if (url.pathname === '/api/profiles' && method === 'GET') return json(res, 200, { data: listProfiles() });
       if (['POST', 'PATCH', 'DELETE'].includes(method) && !sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
-      const target = routeToHermes(url.pathname, method);
-      if (!target) return json(res, 404, { error: { code: 'ROUTE_NOT_ALLOWED', message: 'Route is not exposed by the mobile gateway' } });
-      return await proxy(req, res, target);
+      const route = routeToHermesRequest(url.pathname, method);
+      if (!route) return json(res, 404, { error: { code: 'ROUTE_NOT_ALLOWED', message: 'Route is not exposed by the mobile gateway' } });
+      return await proxy(req, res, route.targetPath, route.profileId);
     }
     if (method === 'GET') return serveStatic(req, res);
     return json(res, 404, { error: { code: 'NOT_FOUND', message: 'Not found' } });
