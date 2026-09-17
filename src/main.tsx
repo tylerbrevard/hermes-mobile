@@ -80,8 +80,8 @@ function Bot({ profile, onSession }: { profile: string; onSession: (id: string) 
     let id = sessionId;
     try {
       if (!id) {
-        const created = await api<{ id?: string; session_id?: string }>('/api/sessions', { method: 'POST', body: JSON.stringify({ title: 'Mobile session', profile }) });
-        id = created.id ?? created.session_id ?? '';
+        const created = await api<{ id?: string; session_id?: string; session?: { id?: string } }>('/api/sessions', { method: 'POST', body: JSON.stringify({ title: 'Mobile session' }) });
+        id = created.id ?? created.session_id ?? created.session?.id ?? '';
         if (!id) throw new Error('Hermes did not return a session id');
         setSessionId(id); onSession(id);
       }
