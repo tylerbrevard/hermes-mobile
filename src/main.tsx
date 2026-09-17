@@ -8,7 +8,7 @@ type Message = { role: 'user' | 'assistant' | 'system'; content: string };
 type SessionSummary = { id: string; title?: string; preview?: string; last_active?: number; message_count?: number; archived?: boolean };
 type ProfileInfo = { id: string; name: string; role: string; model: string; active: boolean };
 type ModelProvider = { slug: string; name: string; is_current?: boolean; models: string[]; capabilities?: Record<string, { reasoning?: boolean; can_disable_reasoning?: boolean; fast?: boolean }> };
-type ModelOptions = { providers?: ModelProvider[] };
+type ModelOptions = { providers?: ModelProvider[]; model?: string; provider?: string };
 
 type ApiError = { error?: { code?: string; message?: string } };
 
@@ -102,7 +102,7 @@ function Bot({ profile, activeSession, onSession, onRun }: { profile: string; ac
   const [reasoning, setReasoning] = useState('');
   const [modelBusy, setModelBusy] = useState(false);
   useEffect(() => {
-    api<ModelOptions>(profileApiPath(profile, '/api/model/options')).then(setModelOptions).catch(() => setModelOptions({}));
+    api<ModelOptions>(profileApiPath(profile, '/api/model/options')).then((value) => { setModelOptions(value); if (value.model && (value.providers ?? []).some((provider) => provider.models.includes(value.model!))) setSelectedModel(value.model); }).catch(() => setModelOptions({}));
   }, []);
   const modelChoices = useMemo(() => (modelOptions.providers ?? []).flatMap((provider) => provider.models.map((model) => ({ model, provider: provider.name, capabilities: provider.capabilities?.[model] }))), [modelOptions]);
   const selectedCapability = modelChoices.find((choice) => choice.model === selectedModel)?.capabilities;
