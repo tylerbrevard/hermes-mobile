@@ -17,6 +17,12 @@
 - [x] Add approval, stop, and steer controls.
 - [x] Add session search/history browse/open plus fork/rename/delete.
 - [x] Add local activity/run recovery view with known-run status refresh.
-- [ ] Add profile switching.
+- [x] Add profile switching with Hermes multiplex routing and per-profile server-side credentials.
+- [x] Add profile-aware sessions, run events, approvals, stop, steer, and activity recovery.
+- [x] Add model/provider picker, profile-default model detection, reasoning control, and session model lock.
+- [x] Add Settings diagnostics, appearance preference, local activity clearing, skill inventory, and toolset inventory.
+- [x] Keep the Hermes `/v1/skills` compatibility failure from breaking the client with a local read-only inventory fallback.
 - [x] Add cache-busting PWA update behavior and verify the live mobile shell; accessibility audit remains.
 - [ ] Add QR/deep-link pairing without placing Hermes credentials in URLs.
+- [ ] Add optional foreground-safe voice/file attachments only when Hermes capabilities advertise support.
+- [ ] Add accessibility and installed-PWA keyboard/VoiceOver pass.

@@ -253,4 +253,19 @@ hermes-mobile/
 1. **Deployment path:** private Tailscale-only PWA vs public hostname behind Cloudflare Access. Recommendation: private first, public only after the BFF/auth boundary is verified.
 2. **BFF runtime:** Node/TypeScript service alongside the PWA vs Python service inside/alongside Hermes. Recommendation: use the stack that can share deployment/restart ownership with the Hermes host; do not modify Hermes core for MVP.
 3. **Notification scope:** no push in MVP; add only after foreground recovery is solid.
-4. **Initial profile scope:** default profile only for the first vertical slice; add profile switching in Phase 3.
+4. **Initial profile scope:** default profile only for the first vertical slice; add profile switching in Phase 3. **Superseded:** the live release now uses Hermes multiplex profile routing and server-side per-profile keys, with all API-served profiles selectable.
+
+## Release status — profile-aware operator slice
+
+Implemented and live on the private Tailscale install:
+
+- Bots roster with connected/stopped state from the Hermes gateway state and profile metadata.
+- Profile-aware BFF routes for capabilities, model options, sessions, run SSE/control, skills, and toolsets.
+- Multi-profile Hermes gateway routing enabled after live validation; duplicate Photon credentials remain visible as upstream profile warnings rather than being silently hidden.
+- Model picker with profile default, provider/model choices, reasoning-effort control, and session model lock.
+- Session search, resume, rename, fork, delete-confirmation, and profile isolation.
+- Run activity ledger with status refresh and profile-aware resume; stop, steer, and approval controls.
+- Settings with health, active profile, appearance, server-side credential boundary, skill inventory, toolset inventory, and local activity clearing.
+- Hermes `/v1/skills` upstream compatibility failure is isolated: the BFF serves a read-only local skill inventory instead of masking the error as an empty list.
+
+Live verification: Hermes 0.21.3, Tailscale HTTPS `:8643`, 9 profiles reachable, 278 skills, 36 toolsets, 11 automated tests passing, typecheck/build passing.
