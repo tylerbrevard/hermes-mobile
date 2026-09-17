@@ -180,7 +180,7 @@ function Bot({ profile, activeSession, onSession, onRun, onMenu }: { profile: st
     let id = sessionId;
     try {
       if (!id) {
-        const created = await api<{ id?: string; session_id?: string; session?: { id?: string } }>(profileApiPath(profile, '/api/sessions'), { method: 'POST', body: JSON.stringify({ title: 'Mobile session' }) });
+        const created = await api<{ id?: string; session_id?: string; session?: { id?: string } }>(profileApiPath(profile, '/api/sessions'), { method: 'POST', body: JSON.stringify({ title: `Mobile session · ${new Date().toLocaleString()} · ${Math.random().toString(36).slice(2, 6)}` }) });
         id = created.id ?? created.session_id ?? created.session?.id ?? '';
         if (!id) throw new Error('Hermes did not return a session id');
         setSessionId(id); onSession(id);
