@@ -97,6 +97,14 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .settings-list span { color: var(--muted); }
 .settings-list strong { font-weight: 650; text-align: right; }
 .settings-list select { max-width: 12rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--surface); color: var(--text); padding: .35rem .45rem; font: inherit; font-size: .78rem; }
+.settings-details { display: grid; gap: .6rem; margin-top: 1rem; }
+.settings-details details { border: 1px solid var(--line); border-radius: .65rem; background: var(--surface); overflow: hidden; }
+.settings-details summary { cursor: pointer; display: flex; justify-content: space-between; padding: .8rem .9rem; font-weight: 650; }
+.settings-details summary span { color: var(--muted); font-weight: 500; }
+.settings-detail-list { max-height: 18rem; overflow: auto; border-top: 1px solid var(--line); }
+.settings-detail-list > div { display: grid; gap: .15rem; padding: .6rem .9rem; border-bottom: 1px solid var(--line); }
+.settings-detail-list > div:last-child { border-bottom: 0; }
+.settings-detail-list span, .settings-detail-list small { color: var(--muted); line-height: 1.35; }
 .secondary-button { margin-top: 1rem; border: 1px solid var(--line); border-radius: .55rem; background: transparent; color: var(--text); padding: .65rem .8rem; font: inherit; }
 .good { color: var(--accent); }.bad { color: var(--danger); }
 .tab-bar { position: fixed; z-index: 5; right: 0; bottom: 0; left: 0; display: grid; grid-template-columns: repeat(5, 1fr); padding: .45rem max(1rem, env(safe-area-inset-left)) calc(.45rem + env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-right)); border-top: 1px solid var(--line); background: #111613e8; backdrop-filter: blur(18px); }
