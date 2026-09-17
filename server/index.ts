@@ -6,6 +6,7 @@ import { createPairingService } from './auth.js';
 import { listProfiles, readProfileApiKey } from './profiles.js';
 import { routeToHermesRequest } from './routes.js';
 import { listLocalSkills } from './skills.js';
+import { PushStore, configureWebPush, sendPushToAll } from './push.js';
 
 const PORT = Number(process.env.PORT ?? 8643);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -20,6 +21,11 @@ const pairing = createPairingService(process.env.PAIRING_CODE ?? '');
 if (AUTO_PAIR_PRIVATE && !WEB_ORIGIN.includes('.ts.net')) throw new Error('AUTO_PAIR_PRIVATE requires a Tailscale .ts.net WEB_ORIGIN');
 const sessions = new Set<string>();
 const MAX_BODY_BYTES = 256 * 1024;
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const pushStore = new PushStore(join(HERMES_HOME, 'hermes-mobile'));
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY ?? '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY ?? '';
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) configureWebPush(VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, 'mailto:hermes-mobile@localhost');
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -31,6 +37,8 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
 }
+
+function authHeader(apiKey: string): string { return ['Bearer', apiKey].join(' '); }
 
 function cookieValue(req: IncomingMessage, name: string): string | undefined {
   const cookies = req.headers.cookie?.split(';').map((part) => part.trim()) ?? [];
@@ -53,13 +61,13 @@ function sameOrigin(req: IncomingMessage): boolean {
   return !origin || origin === WEB_ORIGIN;
 }
 
-async function readBody(req: IncomingMessage): Promise<Buffer> {
+async function readBody(req: IncomingMessage, cap = MAX_BODY_BYTES): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     const part = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += part.length;
-    if (size > MAX_BODY_BYTES) throw new Error('request body too large');
+    if (size > cap) throw new Error('request body too large');
     chunks.push(part);
   }
   return Buffer.concat(chunks);
@@ -71,7 +79,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, targetPath: stri
   const body = ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : await readBody(req);
   const upstream = await fetch(`${HERMES_API_URL}${targetPath}`, {
     method: req.method,
-    headers: { authorization: `Bearer ${apiKey}`, ...(body ? { 'content-type': req.headers['content-type'] ?? 'application/json' } : {}) },
+    headers: { authorization: authHeader(apiKey), ...(body ? { 'content-type': req.headers['content-type'] ?? 'application/json' } : {}) },
     body: body ? new Uint8Array(body) : undefined,
     signal: AbortSignal.timeout(120_000),
   });
@@ -118,6 +126,54 @@ const server = createServer(async (req, res) => {
       if (url.pathname === '/api/profiles' && method === 'GET') return json(res, 200, { data: listProfiles(HERMES_HOME) });
       if (method === 'GET' && (url.pathname === '/api/skills' || /^\/api\/profiles\/[^/]+\/skills$/.test(url.pathname))) {
         return json(res, 200, { object: 'list', data: listLocalSkills(HERMES_HOME) });
+      }
+      if (url.pathname === '/api/push/vapid-key' && method === 'GET') {
+        return json(res, 200, { publicKey: VAPID_PUBLIC_KEY || null });
+      }
+      if (url.pathname === '/api/push/subscribe' && method === 'POST') {
+        if (!sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
+        const body = JSON.parse((await readBody(req)).toString('utf8') || '{}') as { endpoint?: string; keys?: { p256dh?: string; auth?: string }; profile?: string };
+        if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) return json(res, 400, { error: { code: 'INVALID_SUBSCRIPTION', message: 'endpoint and keys are required' } });
+        pushStore.add({ endpoint: body.endpoint, keys: { p256dh: body.keys.p256dh, auth: body.keys.auth }, profile: body.profile ?? 'default' });
+        return json(res, 200, { subscribed: true });
+      }
+      if (url.pathname === '/api/push/unsubscribe' && method === 'POST') {
+        if (!sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
+        const body = JSON.parse((await readBody(req)).toString('utf8') || '{}') as { endpoint?: string };
+        if (body.endpoint) pushStore.remove(body.endpoint);
+        return json(res, 200, { unsubscribed: true });
+      }
+      if (url.pathname === '/api/push/test' && method === 'POST') {
+        if (!sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
+        await sendPushToAll(pushStore, { title: 'Hermes Mobile', body: 'Notifications are working.', url: '/', tag: 'hermes-test' });
+        return json(res, 200, { sent: pushStore.all().length });
+      }
+      if (url.pathname === '/api/push/notify' && method === 'POST') {
+        if (!sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
+        const body = JSON.parse((await readBody(req)).toString('utf8') || '{}') as { title?: string; body?: string; tag?: string; url?: string; profile?: string };
+        await sendPushToAll(pushStore, { title: body.title ?? 'Hermes', body: body.body ?? '', tag: body.tag ?? 'hermes-run', url: body.url ?? '/', profile: body.profile });
+        return json(res, 200, { sent: pushStore.all().length });
+      }
+      const uploadMatch = url.pathname.match(/^\/api\/(?:profiles\/([^/]+)\/)?attachments\/upload$/);
+      if (uploadMatch && method === 'POST') {
+        if (!sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
+        const profileId = uploadMatch[1] ?? 'default';
+        const apiKey = readProfileApiKey(profileId, HERMES_API_KEY);
+        if (!apiKey) return json(res, 503, { error: { code: 'BACKEND_NOT_CONFIGURED', message: 'Hermes API key is not configured for this profile' } });
+        let data: Buffer;
+        try { data = await readBody(req, MAX_UPLOAD_BYTES); }
+        catch { return json(res, 413, { error: { code: 'UPLOAD_TOO_LARGE', message: `Attachment exceeds the ${MAX_UPLOAD_BYTES} byte cap` } }); }
+        const filename = req.headers['x-filename']?.toString() || 'attachment';
+        const contentType = req.headers['content-type']?.toString() || 'application/octet-stream';
+        const upstream = await fetch(`${HERMES_API_URL}/v1/artifacts/upload`, {
+          method: 'POST',
+          headers: { authorization: authHeader(apiKey), 'content-type': contentType, 'x-artifact-filename': filename },
+          body: new Uint8Array(data),
+          signal: AbortSignal.timeout(60_000),
+        });
+        const upstreamBody = await upstream.text();
+        res.writeHead(upstream.status, { 'content-type': 'application/json' });
+        return res.end(upstreamBody);
       }
       if (['POST', 'PATCH', 'DELETE'].includes(method) && !sameOrigin(req)) return json(res, 403, { error: { code: 'BAD_ORIGIN', message: 'Origin is not allowed' } });
       const route = routeToHermesRequest(url.pathname, method);

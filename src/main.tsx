@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { addRunRecord, parseRunRecords, type RunRecord, type RunStatus } from './activity';
+import { renderMarkdown } from './markdown';
+import { enablePushNotifications, disablePushNotifications, isPushSubscribed } from './push';
 import './styles.css';
 
 type Tab = 'bot' | 'bots' | 'sessions' | 'activity' | 'settings';
-type Message = { role: 'user' | 'assistant' | 'system'; content: string };
+type ToolEvent = { tool: string; preview?: string; status: 'running' | 'done' | 'error' };
+type Message = { role: 'user' | 'assistant' | 'system'; content: string; tools?: ToolEvent[] };
 type SessionSummary = { id: string; title?: string; preview?: string; last_active?: number; message_count?: number; archived?: boolean };
 type ProfileInfo = { id: string; name: string; role: string; model: string; active: boolean };
 type ModelProvider = { slug: string; name: string; is_current?: boolean; models: string[]; capabilities?: Record<string, { reasoning?: boolean; can_disable_reasoning?: boolean; fast?: boolean }> };
@@ -67,6 +70,10 @@ async function runControl(profile: string, runId: string, action: 'stop' | 'stee
   return api(profileApiPath(profile, `/api/runs/${encodeURIComponent(runId)}/${action}`), { method: 'POST', body: JSON.stringify(body) });
 }
 
+async function notifyBackground(title: string, body: string, profile: string): Promise<void> {
+  try { await fetch('/api/push/notify', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, body, profile, url: '/' }) }); } catch { /* Notifications are best-effort. */ }
+}
+
 function profileTone(id: string): string {
   const tones = ['moss', 'sky', 'amber', 'rose', 'violet', 'cyan'];
   return tones[[...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % tones.length];
@@ -114,6 +121,19 @@ function Pairing({ onPaired }: { onPaired: () => void }) {
   return <main className="pairing-page"><div className="brand-mark">⌁</div><p className="eyebrow">HERMES MOBILE</p><h1>Your agent.<br /><em>In your pocket.</em></h1><p className="lede">Pair this device with the Hermes gateway to start a private session.</p><form onSubmit={submit} className="pairing-form"><label htmlFor="pairing-code">Pairing code</label><input id="pairing-code" autoComplete="one-time-code" inputMode="text" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Enter the code from your gateway" /><button className="primary-button" disabled={busy || !code.trim()}>{busy ? 'Pairing…' : 'Pair device'}</button>{error && <p className="error-text" role="alert">{error}</p>}</form><p className="quiet">Your Hermes API key stays on the gateway.</p></main>;
 }
 
+function ToolChip({ event }: { event: ToolEvent }) {
+  const icon = event.status === 'running' ? '◌' : event.status === 'error' ? '✕' : '✓';
+  return <details className={`tool-chip tool-${event.status}`}><summary><span className="tool-chip-icon">{icon}</span><span className="tool-chip-name">{event.tool}</span></summary>{event.preview && <p className="tool-chip-preview">{event.preview}</p>}</details>;
+}
+
+function MessageBubble({ message, thinking }: { message: Message; thinking: boolean }) {
+  const html = useMemo(() => renderMarkdown(message.content), [message.content]);
+  return <article className={`message ${message.role}`}>
+    {message.role === 'assistant' && message.tools && message.tools.length > 0 && <div className="tool-chips">{message.tools.map((tool, i) => <ToolChip key={`${tool.tool}-${i}`} event={tool} />)}</div>}
+    {message.content ? <div className="message-body" dangerouslySetInnerHTML={{ __html: html }} /> : thinking ? <p className="message-thinking">Thinking…</p> : null}
+  </article>;
+}
+
 function Bot({ profile, activeSession, onSession, onRun, onMenu }: { profile: string; activeSession: string; onSession: (id: string) => void; onRun: (record: RunRecord) => void; onMenu: () => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState(activeSession);
@@ -127,6 +147,11 @@ function Bot({ profile, activeSession, onSession, onRun, onMenu }: { profile: st
   const [selectedModel, setSelectedModel] = useState('');
   const [reasoning, setReasoning] = useState('');
   const [modelBusy, setModelBusy] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState('');
+  const recognitionRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     api<ModelOptions>(profileApiPath(profile, '/api/model/options')).then((value) => { setModelOptions(value); if (value.model && (value.providers ?? []).some((provider) => provider.models.includes(value.model!))) setSelectedModel(value.model); }).catch(() => setModelOptions({}));
   }, [profile]);
@@ -160,15 +185,18 @@ function Bot({ profile, activeSession, onSession, onRun, onMenu }: { profile: st
         if (!id) throw new Error('Hermes did not return a session id');
         setSessionId(id); onSession(id);
       }
-      setMessages((current) => [...current, { role: 'user', content: prompt }, { role: 'assistant', content: '' }]);
+      setMessages((current) => [...current, { role: 'user', content: prompt }, { role: 'assistant', content: '', tools: [] }]);
       await streamRun(profile, id, prompt, (event) => {
         if (event.run_id) {
           setRunId(event.run_id);
           onRun({ runId: event.run_id, sessionId: id, profile, prompt, status: statusFromRunEvent(event), startedAt, updatedAt: Date.now(), ...(typeof event.error === 'string' ? { error: event.error } : {}) });
         }
-        if (event.event === 'message.delta' && typeof event.delta === 'string') setMessages((current) => { const next = [...current]; next[next.length - 1] = { role: 'assistant', content: next[next.length - 1].content + event.delta }; return next; });
-        if (event.event === 'run.completed' && typeof event.output === 'string') setMessages((current) => { if (current[current.length - 1]?.content) return current; return [...current.slice(0, -1), { role: 'assistant', content: event.output as string }]; });
-        if (event.event === 'approval.request') setApproval({ runId: event.run_id ?? '', requestId: typeof event.request_id === 'string' ? event.request_id : undefined, command: typeof event.command === 'string' ? event.command : undefined, choices: Array.isArray(event.choices) ? event.choices.filter((choice): choice is string => typeof choice === 'string') : ['once', 'deny'] });
+        if (event.event === 'message.delta' && typeof event.delta === 'string') setMessages((current) => { const next = [...current]; next[next.length - 1] = { ...next[next.length - 1], role: 'assistant', content: next[next.length - 1].content + event.delta }; return next; });
+        if (event.event === 'run.completed' && typeof event.output === 'string') setMessages((current) => { if (current[current.length - 1]?.content) return current; return [...current.slice(0, -1), { ...current[current.length - 1], role: 'assistant', content: event.output as string }]; });
+        if (event.event === 'tool.started' && typeof event.tool === 'string') { const tool = event.tool; const preview = typeof event.preview === 'string' ? event.preview : undefined; setMessages((current) => { const next = [...current]; const last = next[next.length - 1]; next[next.length - 1] = { ...last, tools: [...(last.tools ?? []), { tool, preview, status: 'running' }] }; return next; }); }
+        if (event.event === 'tool.completed' && typeof event.tool === 'string') { const tool = event.tool; const preview = typeof event.preview === 'string' ? event.preview : undefined; const isError = Boolean(event.is_error); setMessages((current) => { const next = [...current]; const last = next[next.length - 1]; const tools = [...(last.tools ?? [])]; const idx = [...tools].reverse().findIndex((item) => item.tool === tool && item.status === 'running'); const at = idx === -1 ? -1 : tools.length - 1 - idx; if (at >= 0) tools[at] = { tool, preview: preview ?? tools[at].preview, status: isError ? 'error' : 'done' }; else tools.push({ tool, preview, status: isError ? 'error' : 'done' }); next[next.length - 1] = { ...last, tools }; return next; }); }
+        if (event.event === 'approval.request') { setApproval({ runId: event.run_id ?? '', requestId: typeof event.request_id === 'string' ? event.request_id : undefined, command: typeof event.command === 'string' ? event.command : undefined, choices: Array.isArray(event.choices) ? event.choices.filter((choice): choice is string => typeof choice === 'string') : ['once', 'deny'] }); void notifyBackground('Approval needed', event.command ? `Hermes wants to run: ${event.command}` : 'Hermes is waiting for your decision.', profile); }
+        if (event.event === 'run.completed' && document.hidden) void notifyBackground(`${profile === 'default' ? 'Lily' : profile} finished`, prompt.slice(0, 120), profile);
       }, selectedModel || undefined, runtimeOptions);
     } catch (err) { setError(err instanceof Error ? err.message : 'Hermes could not complete the run'); }
     finally { setBusy(false); setRunId(''); }
@@ -176,7 +204,42 @@ function Bot({ profile, activeSession, onSession, onRun, onMenu }: { profile: st
   async function stopRun() { if (!runId) return; try { await runControl(profile, runId, 'stop'); } catch (err) { setError(err instanceof Error ? err.message : 'Could not stop the run'); } }
   async function steerRun(event: React.FormEvent) { event.preventDefault(); if (!runId || !steerDraft.trim()) return; try { await runControl(profile, runId, 'steer', { input: steerDraft.trim() }); setSteerDraft(''); } catch (err) { setError(err instanceof Error ? err.message : 'Could not steer the run'); } }
   async function resolveApproval(choice: string) { if (!approval?.runId) return; try { await runControl(profile, approval.runId, 'approval', { choice, ...(approval.requestId ? { request_id: approval.requestId } : {}) }); setApproval(null); } catch (err) { setError(err instanceof Error ? err.message : 'Could not resolve approval'); } }
-  return <section className="bot-screen"><header className="chat-header"><button className="icon-button menu-button" onClick={onMenu} aria-label="Open menu">☰</button><div className="chat-title"><span className={`bot-avatar bot-avatar-small tone-${profileTone(profile)}`}>{profileInitials(profile === 'default' ? 'Lily' : profile)}<i /></span><div><h1>{profile === 'default' ? 'Lily' : profile}</h1><span className="chat-status"><b /> Online · ready</span></div></div><div className="chat-header-actions"><button className="icon-button" onClick={() => { setSessionId(''); setMessages([]); onSession(''); }} aria-label="New chat">＋</button></div></header><div className="chat-model-row"><div className="model-controls"><label><span className="sr-only">Model</span><select value={selectedModel} onChange={(event) => void changeModel(event.target.value)} disabled={modelBusy} aria-label="Model"><option value="">Auto · profile default</option>{modelChoices.map((choice) => <option key={`${choice.provider}-${choice.model}`} value={choice.model}>{choice.provider} · {choice.model}</option>)}</select></label>{selectedCapability?.reasoning && <label><span className="sr-only">Reasoning effort</span><select value={reasoning} onChange={(event) => setReasoning(event.target.value)} aria-label="Reasoning effort"><option value="">Reasoning · auto</option><option value="low">Reasoning · low</option><option value="medium">Reasoning · medium</option><option value="high">Reasoning · high</option></select></label>}</div></div><div className="conversation" aria-live="polite">{messages.length === 0 ? <div className="empty-bot"><div className="bot-glyph">⌁</div><h1>What should Hermes do?</h1><p>Ask for an answer, start a task, or send a command. You can pick up the full session later.</p><div className="suggestions"><button onClick={() => setDraft('Give me a concise status update')}>Status update</button><button onClick={() => setDraft('What needs my attention today?')}>What needs attention?</button></div></div> : messages.map((message, index) => <article className={`message ${message.role}`} key={`${index}-${message.content.slice(0, 8)}`}><span className="message-label">{message.role === 'user' ? 'YOU' : 'HERMES'}</span><p>{message.content || (busy && index === messages.length - 1 ? 'Thinking…' : '')}</p></article>)}</div>{approval && <div className="approval-card"><span className="eyebrow">APPROVAL NEEDED</span><strong>Hermes is waiting for your decision.</strong>{approval.command && <code>{approval.command}</code>}<div className="approval-actions">{approval.choices.map((choice) => <button key={choice} className={choice === 'deny' ? 'danger-button' : 'primary-button'} onClick={() => void resolveApproval(choice)}>{choice === 'once' ? 'Allow once' : choice}</button>)}</div></div>}{error && <div className="inline-error" role="alert">{error}</div>}{busy && runId && <div className="run-controls"><button className="danger-button" onClick={() => void stopRun()}>Stop run</button><form onSubmit={steerRun}><input value={steerDraft} onChange={(event) => setSteerDraft(event.target.value)} placeholder="Steer this run…" aria-label="Steer this run" /><button disabled={!steerDraft.trim()}>Send</button></form></div>}<form className="composer" onSubmit={send}><textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Hermes…" aria-label="Message Hermes" rows={1} /><button className="send-button" disabled={!canSend} aria-label={busy ? 'Sending' : 'Send message'}>{busy ? '■' : '↑'}</button></form><p className="composer-hint">↵ send · shift ↵ new line · {profile}</p></section>;
+  function toggleVoice() {
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { setError('Voice input is not supported in this browser'); return; }
+    if (listening) { recognitionRef.current?.stop(); return; }
+    const recognition = new SpeechRecognition();
+    recognition.lang = navigator.language || 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i += 1) transcript += event.results[i][0].transcript;
+      setDraft(transcript);
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
+  }
+  async function attachFile(file: File) {
+    setAttaching(true); setAttachError('');
+    try {
+      const response = await fetch(profileApiPath(profile, '/api/attachments/upload'), {
+        method: 'POST', credentials: 'include',
+        headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': file.name },
+        body: file,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body?.error?.message ?? `Upload failed (${response.status})`);
+      const downloadPath = body.download_path ?? body.downloadPath;
+      const note = downloadPath ? `[Attached: ${file.name}](${downloadPath})` : `[Attached: ${file.name}]`;
+      setDraft((current) => (current ? `${current}\n${note}` : note));
+    } catch (err) { setAttachError(err instanceof Error ? err.message : 'Could not attach file'); }
+    finally { setAttaching(false); }
+  }
+  return <section className="bot-screen"><header className="chat-header"><button className="icon-button menu-button" onClick={onMenu} aria-label="Open menu">☰</button><div className="chat-title"><span className={`bot-avatar bot-avatar-small tone-${profileTone(profile)}`}>{profileInitials(profile === 'default' ? 'Lily' : profile)}<i /></span><div><h1>{profile === 'default' ? 'Lily' : profile}</h1><span className="chat-status"><b /> Online · ready</span></div></div><div className="chat-header-actions"><button className="icon-button" onClick={() => { setSessionId(''); setMessages([]); onSession(''); }} aria-label="New chat">＋</button></div></header><div className="chat-model-row"><div className="model-controls"><label><span className="sr-only">Model</span><select value={selectedModel} onChange={(event) => void changeModel(event.target.value)} disabled={modelBusy} aria-label="Model"><option value="">Auto · profile default</option>{modelChoices.map((choice) => <option key={`${choice.provider}-${choice.model}`} value={choice.model}>{choice.provider} · {choice.model}</option>)}</select></label>{selectedCapability?.reasoning && <label><span className="sr-only">Reasoning effort</span><select value={reasoning} onChange={(event) => setReasoning(event.target.value)} aria-label="Reasoning effort"><option value="">Reasoning · auto</option><option value="low">Reasoning · low</option><option value="medium">Reasoning · medium</option><option value="high">Reasoning · high</option></select></label>}</div></div><div className="conversation" aria-live="polite">{messages.length === 0 ? <div className="empty-bot"><div className="bot-glyph">⌁</div><h1>What should Hermes do?</h1><p>Ask for an answer, start a task, or send a command. You can pick up the full session later.</p><div className="suggestions"><button onClick={() => setDraft('Give me a concise status update')}>Status update</button><button onClick={() => setDraft('What needs my attention today?')}>What needs attention?</button></div></div> : messages.map((message, index) => <MessageBubble key={`${index}-${message.content.slice(0, 8)}`} message={message} thinking={busy && index === messages.length - 1} />)}</div>{approval && <div className="approval-card"><span className="eyebrow">APPROVAL NEEDED</span><strong>Hermes is waiting for your decision.</strong>{approval.command && <code>{approval.command}</code>}<div className="approval-actions">{approval.choices.map((choice) => <button key={choice} className={choice === 'deny' ? 'danger-button' : 'primary-button'} onClick={() => void resolveApproval(choice)}>{choice === 'once' ? 'Allow once' : choice}</button>)}</div></div>}{error && <div className="inline-error" role="alert">{error}</div>}{busy && runId && <div className="run-controls"><button className="danger-button" onClick={() => void stopRun()}>Stop run</button><form onSubmit={steerRun}><input value={steerDraft} onChange={(event) => setSteerDraft(event.target.value)} placeholder="Steer this run…" aria-label="Steer this run" /><button disabled={!steerDraft.trim()}>Send</button></form></div>}{attachError && <div className="inline-error" role="alert">{attachError}</div>}<form className="composer" onSubmit={send}><input ref={fileInputRef} type="file" accept="image/*,.pdf,.txt,.md,.csv,.json" style={{ display: 'none' }} onChange={(e) => { const file = e.target.files?.[0]; if (file) void attachFile(file); e.target.value = ''; }} /><button type="button" className="icon-button composer-icon" onClick={() => fileInputRef.current?.click()} disabled={attaching} aria-label="Attach photo or file">{attaching ? '…' : '📎'}</button><button type="button" className={`icon-button composer-icon ${listening ? 'listening' : ''}`} onClick={toggleVoice} aria-label={listening ? 'Stop dictation' : 'Start dictation'}>{listening ? '●' : '🎙'}</button><textarea value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Hermes…" aria-label="Message Hermes" rows={1} /><button className="send-button" disabled={!canSend} aria-label={busy ? 'Sending' : 'Send message'}>{busy ? '■' : '↑'}</button></form></section>;
 }
 
 function Bots({ selected, onSelect, onBack }: { selected: string; onSelect: (profile: ProfileInfo) => void; onBack: () => void }) {
@@ -223,6 +286,18 @@ function Activity({ records, onOpen, onRun, onBack }: { records: RunRecord[]; on
   return <section className="placeholder-screen activity-screen"><div className="screen-header"><button className="icon-button back-button" onClick={onBack} aria-label="Back to chat">‹</button><div className="screen-header-title"><p className="eyebrow">ACTIVITY</p><h2>Runs, at a glance.</h2></div><span className="run-count">{records.length} saved</span></div>{records.length === 0 ? <div className="notice-card"><strong>No mobile runs yet</strong><span>Runs started from this device will be recoverable here.</span></div> : <div className="run-list">{records.map((record) => <article className="run-card" key={record.runId}><div className="run-card-header"><strong>{record.status.replaceAll('_', ' ')}</strong><time dateTime={new Date(record.startedAt).toISOString()}>{new Date(record.startedAt).toLocaleString()}</time></div><p>{record.prompt}</p>{record.error && <span className="error-text">{record.error}</span>}<div className="run-card-actions"><button onClick={() => onOpen(record.sessionId, record.profile)}>Open session</button><button onClick={() => void refresh(record)} disabled={refreshing === record.runId}>{refreshing === record.runId ? 'Checking…' : 'Refresh status'}</button></div></article>)}</div>}</section>; }
 function Settings({ connected, profile, onProfile, onClearActivity, onBack }: { connected: boolean; profile: string; onProfile: (profile: ProfileInfo) => void; onClearActivity: () => void; onBack: () => void }) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]); const [health, setHealth] = useState<{ version?: string; status?: string } | null>(null); const [skills, setSkills] = useState<SkillInfo[]>([]); const [toolsets, setToolsets] = useState<ToolsetInfo[]>([]); const [appearance, setAppearance] = useState(() => localStorage.getItem('hermes-mobile:appearance') ?? 'system');
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
+  useEffect(() => { void isPushSubscribed().then(setPushOn); }, []);
+  async function togglePush() {
+    setPushBusy(true); setPushError('');
+    try {
+      if (pushOn) { await disablePushNotifications(); setPushOn(false); }
+      else { const result = await enablePushNotifications(profile); if (!result.ok) setPushError(result.error ?? 'Could not enable notifications'); else setPushOn(true); }
+    } catch (err) { setPushError(err instanceof Error ? err.message : 'Could not update notifications'); }
+    finally { setPushBusy(false); }
+  }
   useEffect(() => {
     void Promise.allSettled([api<{ data?: ProfileInfo[] }>('/api/profiles'), api<{ skills?: unknown[]; data?: unknown[] }>('/api/skills'), api<{ toolsets?: unknown[]; data?: unknown[] }>('/api/toolsets'), api<{ version?: string; status?: string }>('/api/health/detailed')]).then(([profileResult, skillsResult, toolsetsResult, healthResult]) => {
       if (profileResult.status === 'fulfilled') setProfiles(profileResult.value.data ?? []);
@@ -232,7 +307,7 @@ function Settings({ connected, profile, onProfile, onClearActivity, onBack }: { 
     });
   }, []);
   function changeAppearance(value: string) { setAppearance(value); localStorage.setItem('hermes-mobile:appearance', value); document.documentElement.dataset.appearance = value; }
-  return <section className="placeholder-screen settings-screen"><div className="screen-header"><button className="icon-button back-button" onClick={onBack} aria-label="Back to chat">‹</button><div className="screen-header-title"><p className="eyebrow">SETTINGS</p><h2>Quiet controls.</h2></div></div><p className="screen-lede">The mobile gateway keeps credentials server-side. These controls change the client or select a profile; Hermes remains the source of truth for agent configuration.</p><div className="settings-list"><div><span>Gateway</span><strong className={connected ? 'good' : 'bad'}>{connected ? 'Connected' : 'Unavailable'}</strong></div><div><span>Health</span><strong>{health?.status ?? 'Checking…'}{health?.version ? ` · ${health.version}` : ''}</strong></div><div><span>Active profile</span><select value={profile} onChange={(event) => { const next = profiles.find((item) => item.id === event.target.value); if (next?.active) onProfile(next); }} aria-label="Active profile">{profiles.map((item) => <option key={item.id} value={item.id} disabled={!item.active}>{item.name}{item.active ? '' : ' · stopped'}</option>)}</select></div><div><span>Appearance</span><select value={appearance} onChange={(event) => changeAppearance(event.target.value)} aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="dim">Dim</option></select></div><div><span>Capabilities</span><strong>{skills.length} skills · {toolsets.length} toolsets</strong></div><div><span>Credential boundary</span><strong>Server-side</strong></div><div><span>Client</span><strong>Hermes Mobile 0.2</strong></div></div><div className="settings-details"><details><summary>Skills inventory <span>{skills.length}</span></summary><div className="settings-detail-list">{skills.slice(0, 80).map((skill) => <div key={`${skill.category}-${skill.name}`}><strong>{skill.name}</strong><span>{skill.description || skill.category || 'Installed skill'}</span></div>)}{skills.length > 80 && <small>Showing the first 80 installed skills.</small>}</div></details><details><summary>Toolsets <span>{toolsets.length}</span></summary><div className="settings-detail-list">{toolsets.map((toolset) => <div key={toolset.name}><strong>{toolset.label || toolset.name}</strong><span>{toolset.enabled ? 'Enabled' : 'Disabled'} · {(toolset.tools ?? []).length} tools</span></div>)}</div></details></div><button className="secondary-button" onClick={onClearActivity}>Clear local activity</button></section>; }
+  return <section className="placeholder-screen settings-screen"><div className="screen-header"><button className="icon-button back-button" onClick={onBack} aria-label="Back to chat">‹</button><div className="screen-header-title"><p className="eyebrow">SETTINGS</p><h2>Quiet controls.</h2></div></div><p className="screen-lede">The mobile gateway keeps credentials server-side. These controls change the client or select a profile; Hermes remains the source of truth for agent configuration.</p><div className="settings-list"><div><span>Gateway</span><strong className={connected ? 'good' : 'bad'}>{connected ? 'Connected' : 'Unavailable'}</strong></div><div><span>Health</span><strong>{health?.status ?? 'Checking…'}{health?.version ? ` · ${health.version}` : ''}</strong></div><div><span>Active profile</span><select value={profile} onChange={(event) => { const next = profiles.find((item) => item.id === event.target.value); if (next?.active) onProfile(next); }} aria-label="Active profile">{profiles.map((item) => <option key={item.id} value={item.id} disabled={!item.active}>{item.name}{item.active ? '' : ' · stopped'}</option>)}</select></div><div><span>Appearance</span><select value={appearance} onChange={(event) => changeAppearance(event.target.value)} aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option><option value="dim">Dim</option></select></div><div><span>Notifications</span><button className="secondary-button" onClick={() => void togglePush()} disabled={pushBusy}>{pushBusy ? 'Working…' : pushOn ? 'On · Turn off' : 'Off · Turn on'}</button></div>{pushError && <div><span /><strong className="bad">{pushError}</strong></div>}<div><span>Capabilities</span><strong>{skills.length} skills · {toolsets.length} toolsets</strong></div><div><span>Credential boundary</span><strong>Server-side</strong></div><div><span>Client</span><strong>Hermes Mobile 0.2</strong></div></div><div className="settings-details"><details><summary>Skills inventory <span>{skills.length}</span></summary><div className="settings-detail-list">{skills.slice(0, 80).map((skill) => <div key={`${skill.category}-${skill.name}`}><strong>{skill.name}</strong><span>{skill.description || skill.category || 'Installed skill'}</span></div>)}{skills.length > 80 && <small>Showing the first 80 installed skills.</small>}</div></details><details><summary>Toolsets <span>{toolsets.length}</span></summary><div className="settings-detail-list">{toolsets.map((toolset) => <div key={toolset.name}><strong>{toolset.label || toolset.name}</strong><span>{toolset.enabled ? 'Enabled' : 'Disabled'} · {(toolset.tools ?? []).length} tools</span></div>)}</div></details></div><button className="secondary-button" onClick={onClearActivity}>Clear local activity</button></section>; }
 
 function NavSheet({ open, onClose, activeProfile, onProfile, onNavigate, onNewChat }: { open: boolean; onClose: () => void; activeProfile: string; onProfile: (profile: ProfileInfo) => void; onNavigate: (tab: Tab) => void; onNewChat: () => void }) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);

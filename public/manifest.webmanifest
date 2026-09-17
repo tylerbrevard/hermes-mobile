@@ -6,5 +6,5 @@
   "background_color": "#101412",
   "theme_color": "#101412",
   "description": "A bot-first mobile client for Hermes Agent",
-  "icons": []
+  "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
 }
