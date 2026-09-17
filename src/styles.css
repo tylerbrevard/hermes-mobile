@@ -57,9 +57,20 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .run-controls form button { min-height: 44px; border-radius: 10px; padding: 0 .9rem; }
 .session-search { width: 100%; margin-bottom: 1rem; }
 .session-list { display: grid; gap: .65rem; }
-.session-row { display: grid; gap: .35rem; width: 100%; border: 1px solid var(--line); border-radius: 15px; padding: 1rem; background: var(--surface); text-align: left; }
+.session-row { display: grid; gap: .65rem; width: 100%; border: 1px solid var(--line); border-radius: 15px; padding: .75rem; background: var(--surface); text-align: left; }
 .session-row.selected { border-color: var(--accent); box-shadow: 0 0 0 2px #b4ef7320; }
+.session-row-main { display: grid; gap: .35rem; width: 100%; border: 0; padding: .25rem; background: transparent; text-align: left; }
 .session-row-title { overflow: hidden; color: #edf3ee; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.session-actions, .rename-form, .run-card-actions { display: flex; gap: .45rem; flex-wrap: wrap; }
+.session-actions button, .rename-form button, .run-card-actions button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; padding: 0 .7rem; color: var(--muted); background: transparent; font-size: .75rem; }
+.rename-form input { flex: 1; min-width: 8rem; }
+.run-list { display: grid; gap: .7rem; margin-top: 1.25rem; }
+.run-card { display: grid; gap: .65rem; padding: .9rem; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); }
+.run-card p { margin: 0; color: #edf3ee; line-height: 1.4; }
+.run-card-header { display: flex; justify-content: space-between; gap: .75rem; align-items: baseline; }
+.run-card-header strong { color: var(--accent); text-transform: capitalize; }
+.run-card-header time, .run-count { color: var(--muted); font-size: .7rem; }
+.run-card-actions { padding-top: .15rem; }
 .session-row-preview { overflow: hidden; color: var(--muted); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
 .session-row-meta { color: #69766d; font-size: .68rem; }
 .notice-card, .settings-list { margin-top: 2rem; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }

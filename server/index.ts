@@ -75,6 +75,8 @@ function routeToHermes(pathname: string, method: string): string | undefined {
     if (action === 'model' && method === 'POST') return `/api/sessions/${encodeURIComponent(id)}/model`;
     if (!action && ['GET', 'PATCH', 'DELETE'].includes(method)) return `/api/sessions/${encodeURIComponent(id)}`;
   }
+  const runStatus = pathname.match(/^\/api\/runs\/([^/]+)$/);
+  if (runStatus && method === 'GET') return `/v1/runs/${encodeURIComponent(runStatus[1])}`;
   const run = pathname.match(/^\/api\/runs\/([^/]+)\/(events|approval|stop|steer)$/);
   if (run) {
     const [, id, action] = run;
