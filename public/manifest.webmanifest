@@ -1,0 +1,10 @@
+{
+  "name": "Hermes Mobile",
+  "short_name": "Hermes",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101412",
+  "theme_color": "#101412",
+  "description": "A bot-first mobile client for Hermes Agent",
+  "icons": []
+}

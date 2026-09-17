@@ -1,0 +1,14 @@
+services:
+  hermes-mobile:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8643:8643"
+    environment:
+      HERMES_API_URL: ${HERMES_API_URL:-http://host.docker.internal:8642}
+      HERMES_API_KEY: ${HERMES_API_KEY:?Set HERMES_API_KEY in .env}
+      PAIRING_CODE: ${PAIRING_CODE:?Set PAIRING_CODE in .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN to the HTTPS origin serving this app}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
